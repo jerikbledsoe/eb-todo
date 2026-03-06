@@ -11,9 +11,9 @@ export async function loadData(userId) {
 
   try {
     const [projectsRes, sectionsRes, tasksRes] = await Promise.all([
-      supabase.from('projects').select('*').eq('user_id', userId).order('order'),
-      supabase.from('sections').select('*').eq('user_id', userId).order('order'),
-      supabase.from('tasks').select('*').eq('user_id', userId).order('order'),
+      supabase.from('eb_todo_projects').select('*').eq('user_id', userId).order('order'),
+      supabase.from('eb_todo_sections').select('*').eq('user_id', userId).order('order'),
+      supabase.from('eb_todo_tasks').select('*').eq('user_id', userId).order('order'),
     ]);
 
     if (projectsRes.error) throw projectsRes.error;
@@ -43,39 +43,39 @@ export async function loadData(userId) {
 export async function saveProjects(userId, projects) {
   if (!userId) return;
   const rows = projects.map(p => mapToDb(p, userId));
-  const { error } = await supabase.from('projects').upsert(rows, { onConflict: 'id' });
+  const { error } = await supabase.from('eb_todo_projects').upsert(rows, { onConflict: 'id' });
   if (error) console.error('Save projects error:', error);
 }
 
 export async function saveSections(userId, sections) {
   if (!userId) return;
   const rows = sections.map(s => mapToDb(s, userId));
-  const { error } = await supabase.from('sections').upsert(rows, { onConflict: 'id' });
+  const { error } = await supabase.from('eb_todo_sections').upsert(rows, { onConflict: 'id' });
   if (error) console.error('Save sections error:', error);
 }
 
 export async function saveTasks(userId, tasks) {
   if (!userId) return;
   const rows = tasks.map(t => mapToDb(t, userId));
-  const { error } = await supabase.from('tasks').upsert(rows, { onConflict: 'id' });
+  const { error } = await supabase.from('eb_todo_tasks').upsert(rows, { onConflict: 'id' });
   if (error) console.error('Save tasks error:', error);
 }
 
 export async function deleteProjectFromDb(userId, projectId) {
   if (!userId) return;
-  await supabase.from('tasks').delete().eq('user_id', userId).eq('project_id', projectId);
-  await supabase.from('sections').delete().eq('user_id', userId).eq('project_id', projectId);
-  await supabase.from('projects').delete().eq('user_id', userId).eq('id', projectId);
+  await supabase.from('eb_todo_tasks').delete().eq('user_id', userId).eq('project_id', projectId);
+  await supabase.from('eb_todo_sections').delete().eq('user_id', userId).eq('project_id', projectId);
+  await supabase.from('eb_todo_projects').delete().eq('user_id', userId).eq('id', projectId);
 }
 
 export async function deleteSectionsFromDb(userId, sectionIds) {
   if (!userId || sectionIds.length === 0) return;
-  await supabase.from('sections').delete().eq('user_id', userId).in('id', sectionIds);
+  await supabase.from('eb_todo_sections').delete().eq('user_id', userId).in('id', sectionIds);
 }
 
 export async function deleteTaskFromDb(userId, taskId) {
   if (!userId) return;
-  await supabase.from('tasks').delete().eq('user_id', userId).eq('id', taskId);
+  await supabase.from('eb_todo_tasks').delete().eq('user_id', userId).eq('id', taskId);
 }
 
 // Map from DB snake_case to app camelCase
@@ -122,9 +122,9 @@ async function seedData(userId, defaults) {
   const sectionRows = defaults.sections.map(s => mapToDb(s, userId));
   const taskRows = defaults.tasks.map(t => mapToDb(t, userId));
 
-  await supabase.from('projects').insert(projectRows);
-  await supabase.from('sections').insert(sectionRows);
-  await supabase.from('tasks').insert(taskRows);
+  await supabase.from('eb_todo_projects').insert(projectRows);
+  await supabase.from('eb_todo_sections').insert(sectionRows);
+  await supabase.from('eb_todo_tasks').insert(taskRows);
 }
 
 function getDefaultData() {
