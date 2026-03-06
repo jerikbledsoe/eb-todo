@@ -1,16 +1,57 @@
-import { useState, useCallback, useEffect } from 'react';
-import { loadData, saveData, generateId } from './data.js';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import {
+  loadData, generateId,
+  saveProjects, saveSections, saveTasks,
+  deleteProjectFromDb, deleteSectionsFromDb, deleteTaskFromDb,
+} from './data.js';
+import { useAuth } from '../lib/AuthContext.jsx';
 
 export default function useStore() {
-  const [data, setData] = useState(() => loadData());
+  const { user } = useAuth();
+  const [data, setData] = useState({ projects: [], sections: [], tasks: [] });
+  const [loading, setLoading] = useState(true);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [activeProject, setActiveProject] = useState('inbox');
-  const [activeView, setActiveView] = useState('list'); // list | board | calendar
+  const [activeView, setActiveView] = useState('list');
 
-  // Persist on every change
+  // Track what's changed to debounce saves
+  const saveTimer = useRef(null);
+  const prevData = useRef(null);
+
+  // Load data from Supabase on login
   useEffect(() => {
-    saveData(data);
-  }, [data]);
+    if (!user) {
+      setData({ projects: [], sections: [], tasks: [] });
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    loadData(user.id).then((d) => {
+      setData(d);
+      prevData.current = d;
+      setLoading(false);
+    });
+  }, [user]);
+
+  // Debounced save to Supabase when data changes
+  useEffect(() => {
+    if (!user || loading) return;
+    if (!prevData.current) {
+      prevData.current = data;
+      return;
+    }
+
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      const prev = prevData.current;
+      if (data.projects !== prev.projects) saveProjects(user.id, data.projects);
+      if (data.sections !== prev.sections) saveSections(user.id, data.sections);
+      if (data.tasks !== prev.tasks) saveTasks(user.id, data.tasks);
+      prevData.current = data;
+    }, 500);
+
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, [data, user, loading]);
 
   // --- PROJECTS ---
   const addProject = useCallback((name, color = '#6B7280', icon = '📁') => {
@@ -43,10 +84,11 @@ export default function useStore() {
       sections: prev.sections.filter(s => s.projectId !== id),
       tasks: prev.tasks.filter(t => t.projectId !== id),
     }));
+    if (user) deleteProjectFromDb(user.id, id);
     if (activeProject === id) setActiveProject('inbox');
-  }, [activeProject]);
+  }, [activeProject, user]);
 
-  // --- SECTIONS (support nesting, emoji, color) ---
+  // --- SECTIONS ---
   const addSection = useCallback((projectId, name, parentSectionId = null, color = '#6B7280', icon = '') => {
     const id = generateId();
     setData(prev => {
@@ -73,7 +115,6 @@ export default function useStore() {
 
   const deleteSection = useCallback((id) => {
     setData(prev => {
-      // Also delete all child sections recursively
       const toDelete = new Set();
       const findChildren = (parentId) => {
         toDelete.add(parentId);
@@ -83,13 +124,15 @@ export default function useStore() {
       };
       findChildren(id);
 
+      if (user) deleteSectionsFromDb(user.id, [...toDelete]);
+
       return {
         ...prev,
         sections: prev.sections.filter(s => !toDelete.has(s.id)),
         tasks: prev.tasks.map(t => toDelete.has(t.sectionId) ? { ...t, sectionId: null } : t),
       };
     });
-  }, []);
+  }, [user]);
 
   // --- TASKS ---
   const addTask = useCallback((projectId, sectionId, title = '', priority = 'white') => {
@@ -128,8 +171,9 @@ export default function useStore() {
       ...prev,
       tasks: prev.tasks.filter(t => t.id !== id),
     }));
+    if (user) deleteTaskFromDb(user.id, id);
     if (selectedTaskId === id) setSelectedTaskId(null);
-  }, [selectedTaskId]);
+  }, [selectedTaskId, user]);
 
   const toggleTask = useCallback((id) => {
     setData(prev => ({
@@ -159,17 +203,14 @@ export default function useStore() {
   // --- COMPUTED ---
   const currentProject = data.projects.find(p => p.id === activeProject) || data.projects[0];
 
-  // Top-level sections for this project (parentSectionId === null)
   const projectSections = data.sections
     .filter(s => s.projectId === activeProject && s.parentSectionId === null)
     .sort((a, b) => a.order - b.order);
 
-  // All sections for this project (including nested)
   const allProjectSections = data.sections
     .filter(s => s.projectId === activeProject)
     .sort((a, b) => a.order - b.order);
 
-  // Get child sections of a given parent
   const getChildSections = useCallback((parentSectionId) => {
     return data.sections
       .filter(s => s.parentSectionId === parentSectionId)
@@ -192,6 +233,7 @@ export default function useStore() {
 
   return {
     data,
+    loading,
     setData,
     projects: data.projects,
     activeProject,

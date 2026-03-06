@@ -19,6 +19,7 @@ export default function Sidebar({
   activeView, setActiveView,
   addProject, deleteProject,
   todayCount, upcomingCount,
+  signOut, user,
 }) {
   const [showNewProject, setShowNewProject] = useState(false);
   const [newName, setNewName] = useState('');
@@ -54,7 +55,7 @@ export default function Sidebar({
     <div className="w-64 bg-gray-900 h-screen flex flex-col border-r border-gray-800 select-none">
       {/* Header */}
       <div className="p-4 border-b border-gray-800">
-        <h1 className="text-lg font-bold text-white tracking-tight">Builder Tasks</h1>
+        <h1 className="text-lg font-bold text-white tracking-tight">EB Todo</h1>
         <p className="text-xs text-gray-500 mt-0.5">by Erik Bledsoe</p>
       </div>
 
@@ -212,7 +213,18 @@ export default function Sidebar({
 
       {/* Footer */}
       <div className="p-3 border-t border-gray-800">
-        <p className="text-[10px] text-gray-600 text-center">Local Mode • Supabase sync coming</p>
+        {user && (
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[10px] text-gray-500 truncate flex-1">{user.email}</p>
+            <button
+              onClick={signOut}
+              className="text-[10px] text-gray-600 hover:text-gray-300 transition-colors ml-2"
+            >
+              Sign out
+            </button>
+          </div>
+        )}
+        <p className="text-[10px] text-gray-600 text-center">Cloud Synced</p>
       </div>
     </div>
   );

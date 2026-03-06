@@ -6,7 +6,9 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
+import { useAuth } from './lib/AuthContext.jsx';
 import useStore from './store/useStore.js';
+import LoginPage from './components/LoginPage.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import TaskDetail from './components/TaskDetail.jsx';
 import ListView from './views/ListView.jsx';
@@ -16,8 +18,10 @@ import TodayView from './views/TodayView.jsx';
 import UpcomingView from './views/UpcomingView.jsx';
 
 function App() {
+  const { user, loading: authLoading, signOut } = useAuth();
   const store = useStore();
   const {
+    loading: dataLoading,
     projects, activeProject, setActiveProject, currentProject,
     sections, projectSections, allProjectSections, getChildSections,
     tasks, projectTasks, allTasks,
@@ -40,7 +44,6 @@ function App() {
     const taskId = active.id;
     const overId = over.id;
 
-    // Check all project sections (including nested)
     const targetSection = allProjectSections.find(s => s.id === overId);
     const targetTask = projectTasks.find(t => t.id === overId);
 
@@ -74,6 +77,29 @@ function App() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [projectSections, activeProject, activeView, addTask, setSelectedTaskId]);
+
+  // Auth loading
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-950">
+        <div className="text-gray-400">Loading...</div>
+      </div>
+    );
+  }
+
+  // Not logged in
+  if (!user) {
+    return <LoginPage />;
+  }
+
+  // Data loading
+  if (dataLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-950">
+        <div className="text-gray-400">Loading your tasks...</div>
+      </div>
+    );
+  }
 
   // Today badge count
   const todayStr = new Date().toISOString().split('T')[0];
@@ -159,6 +185,8 @@ function App() {
         addProject={addProject}
         deleteProject={deleteProject}
         todayCount={todayCount}
+        signOut={signOut}
+        user={user}
       />
 
       <div className="flex flex-1 overflow-hidden">
