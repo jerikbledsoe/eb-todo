@@ -1,0 +1,182 @@
+import { useCallback, useEffect } from 'react';
+import {
+  DndContext,
+  closestCorners,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import useStore from './store/useStore.js';
+import Sidebar from './components/Sidebar.jsx';
+import TaskDetail from './components/TaskDetail.jsx';
+import ListView from './views/ListView.jsx';
+import BoardView from './views/BoardView.jsx';
+import CalendarView from './views/CalendarView.jsx';
+import TodayView from './views/TodayView.jsx';
+import UpcomingView from './views/UpcomingView.jsx';
+
+function App() {
+  const store = useStore();
+  const {
+    projects, activeProject, setActiveProject, currentProject,
+    sections, projectSections, allProjectSections, getChildSections,
+    tasks, projectTasks, allTasks,
+    selectedTask, selectedTaskId, setSelectedTaskId,
+    activeView, setActiveView,
+    addProject, deleteProject,
+    addSection, updateSection, deleteSection,
+    addTask, updateTask, deleteTask, toggleTask, moveTask,
+  } = store;
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
+
+  // List view drag handler (cross-section)
+  const handleDragEnd = useCallback((event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const taskId = active.id;
+    const overId = over.id;
+
+    // Check all project sections (including nested)
+    const targetSection = allProjectSections.find(s => s.id === overId);
+    const targetTask = projectTasks.find(t => t.id === overId);
+
+    if (overId === '__unsorted__') {
+      moveTask(taskId, null, 0);
+    } else if (targetSection) {
+      moveTask(taskId, targetSection.id, 0);
+    } else if (targetTask) {
+      const sectionTasks = projectTasks
+        .filter(t => t.sectionId === targetTask.sectionId && !t.completed)
+        .sort((a, b) => a.order - b.order);
+      const targetIndex = sectionTasks.findIndex(t => t.id === overId);
+      moveTask(taskId, targetTask.sectionId, targetIndex);
+    }
+  }, [allProjectSections, projectTasks, moveTask]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'Escape') {
+        setSelectedTaskId(null);
+      }
+      if (e.key === 'n' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
+        e.preventDefault();
+        const firstSection = projectSections[0];
+        if (firstSection && (activeView === 'list' || activeView === 'board')) {
+          addTask(activeProject, firstSection.id);
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [projectSections, activeProject, activeView, addTask, setSelectedTaskId]);
+
+  // Today badge count
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayCount = allTasks.filter(t => !t.completed && t.dueDate && t.dueDate <= todayStr).length;
+
+  // Shared props for both list and board
+  const sharedViewProps = {
+    project: currentProject,
+    sections: projectSections,
+    tasks: projectTasks,
+    selectedTaskId,
+    onSelectTask: setSelectedTaskId,
+    onToggleTask: toggleTask,
+    addTask,
+    addSection,
+    updateSection,
+    deleteSection,
+    moveTask,
+    getChildSections,
+  };
+
+  const renderMainView = () => {
+    if (activeView === 'today') {
+      return (
+        <TodayView
+          allTasks={allTasks}
+          projects={projects}
+          selectedTaskId={selectedTaskId}
+          onSelectTask={setSelectedTaskId}
+          onToggleTask={toggleTask}
+        />
+      );
+    }
+
+    if (activeView === 'upcoming') {
+      return (
+        <UpcomingView
+          allTasks={allTasks}
+          projects={projects}
+          selectedTaskId={selectedTaskId}
+          onSelectTask={setSelectedTaskId}
+          onToggleTask={toggleTask}
+        />
+      );
+    }
+
+    if (activeView === 'calendar') {
+      return (
+        <CalendarView
+          allTasks={allTasks}
+          selectedTaskId={selectedTaskId}
+          onSelectTask={setSelectedTaskId}
+          onToggleTask={toggleTask}
+          updateTask={updateTask}
+        />
+      );
+    }
+
+    if (activeView === 'board') {
+      return <BoardView {...sharedViewProps} />;
+    }
+
+    // Default: list view (with DndContext wrapper for cross-section drag)
+    return (
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragEnd={handleDragEnd}
+      >
+        <ListView {...sharedViewProps} />
+      </DndContext>
+    );
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-950 overflow-hidden">
+      <Sidebar
+        projects={projects}
+        activeProject={activeProject}
+        setActiveProject={setActiveProject}
+        activeView={activeView}
+        setActiveView={setActiveView}
+        addProject={addProject}
+        deleteProject={deleteProject}
+        todayCount={todayCount}
+      />
+
+      <div className="flex flex-1 overflow-hidden">
+        {renderMainView()}
+
+        {selectedTask && (
+          <TaskDetail
+            task={selectedTask}
+            projects={projects}
+            sections={sections}
+            onUpdate={updateTask}
+            onDelete={deleteTask}
+            onClose={() => setSelectedTaskId(null)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default App;
