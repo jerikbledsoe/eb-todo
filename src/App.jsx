@@ -92,8 +92,8 @@ function App() {
     return <LoginPage />;
   }
 
-  // Data loading
-  if (dataLoading) {
+  // Data loading or no project data yet
+  if (dataLoading || !currentProject) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-950">
         <div className="text-gray-400">Loading your tasks...</div>
