@@ -1,4 +1,13 @@
 import { useState } from 'react';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+} from '@dnd-kit/core';
+import { useDraggable, useDroppable } from '@dnd-kit/core';
 
 const VIEW_ITEMS = [
   { id: 'today', label: 'Today', icon: '☀️' },
@@ -14,25 +23,69 @@ const VIEW_MODES = [
 const PROJECT_COLORS = ['#EF4444', '#F97316', '#EAB308', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#6B7280'];
 const PROJECT_ICONS = ['📁', '🏰', '🎯', '⛰️', '📱', '💼', '🚀', '⚡', '🔥', '💡', '🎨', '📊'];
 
-function ProjectItem({
+// Drop zone between projects for reordering at top level
+function DropGap({ id }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`h-0.5 mx-3 rounded transition-all ${isOver ? 'bg-blue-500 h-1' : ''}`}
+    />
+  );
+}
+
+// Draggable + Droppable project item
+function DraggableProjectItem({
   project, depth, activeProject, specialView,
   onProjectClick, onContextMenu, getChildProjects, collapsed, toggleCollapse,
+  dragActiveId,
 }) {
   const children = getChildProjects(project.id);
   const hasChildren = children.length > 0;
   const isCollapsed = collapsed[project.id];
+  const isDragging = dragActiveId === project.id;
+
+  const { attributes, listeners, setNodeRef: setDragRef, transform } = useDraggable({
+    id: project.id,
+    disabled: project.id === 'inbox',
+  });
+
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `nest-${project.id}`,
+    data: { type: 'nest', projectId: project.id },
+  });
+
+  // Combine refs
+  const setRefs = (node) => {
+    setDragRef(node);
+    setDropRef(node);
+  };
+
+  const style = transform ? {
+    transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+    zIndex: 50,
+    opacity: 0.8,
+  } : undefined;
 
   return (
     <>
-      <button
+      <div
+        ref={setRefs}
+        style={style}
+        {...attributes}
+        {...listeners}
         onClick={() => onProjectClick(project.id)}
         onContextMenu={(e) => onContextMenu(e, project)}
-        className={`w-full flex items-center gap-2 py-2 rounded-lg text-sm transition-colors ${
+        className={`w-full flex items-center gap-2 py-2 rounded-lg text-sm transition-colors cursor-grab active:cursor-grabbing ${
+          isDragging ? 'opacity-40' : ''
+        } ${
+          isOver && !isDragging ? 'bg-blue-900/30 ring-1 ring-blue-500/50' : ''
+        } ${
           activeProject === project.id && !specialView
             ? 'bg-gray-700 text-white'
             : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
         }`}
-        style={{ paddingLeft: `${12 + depth * 16}px`, paddingRight: '12px' }}
+        style={{ ...style, paddingLeft: `${12 + depth * 16}px`, paddingRight: '12px' }}
       >
         {hasChildren ? (
           <span
@@ -50,9 +103,9 @@ function ProjectItem({
           className="w-2 h-2 rounded-full flex-shrink-0"
           style={{ backgroundColor: project.color }}
         />
-      </button>
+      </div>
       {hasChildren && !isCollapsed && children.map(child => (
-        <ProjectItem
+        <DraggableProjectItem
           key={child.id}
           project={child}
           depth={depth + 1}
@@ -63,9 +116,21 @@ function ProjectItem({
           getChildProjects={getChildProjects}
           collapsed={collapsed}
           toggleCollapse={toggleCollapse}
+          dragActiveId={dragActiveId}
         />
       ))}
     </>
+  );
+}
+
+// Top-level drop zone to un-nest a project
+function TopLevelDropZone({ isOver }) {
+  return (
+    <div className={`mx-3 mb-1 rounded text-center text-[10px] py-1 transition-all ${
+      isOver ? 'bg-blue-900/30 text-blue-400 border border-dashed border-blue-500/50' : 'h-0'
+    }`}>
+      {isOver ? 'Drop here for top level' : ''}
+    </div>
   );
 }
 
@@ -85,6 +150,11 @@ export default function Sidebar({
   const [specialView, setSpecialView] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const [collapsed, setCollapsed] = useState({});
+  const [dragActiveId, setDragActiveId] = useState(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
 
   const toggleCollapse = (projectId) => {
     setCollapsed(prev => ({ ...prev, [projectId]: !prev[projectId] }));
@@ -120,7 +190,6 @@ export default function Sidebar({
     }
   };
 
-  // Get all possible parent projects (exclude the project itself and its descendants)
   const getValidParents = (excludeId) => {
     const descendants = new Set();
     const findDesc = (parentId) => {
@@ -131,6 +200,42 @@ export default function Sidebar({
     return projects.filter(p => !descendants.has(p.id) && p.id !== 'inbox');
   };
 
+  // DnD: top-level drop zone
+  const { setNodeRef: setTopLevelRef, isOver: isOverTopLevel } = useDroppable({
+    id: 'top-level-drop',
+    data: { type: 'top-level' },
+  });
+
+  const handleDragStart = (event) => {
+    setDragActiveId(event.active.id);
+  };
+
+  const handleDragEnd = (event) => {
+    setDragActiveId(null);
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const draggedId = active.id;
+    const overId = over.id;
+
+    // Prevent nesting inbox
+    if (draggedId === 'inbox') return;
+
+    if (overId === 'top-level-drop') {
+      // Move to top level
+      moveProject(draggedId, null);
+    } else if (overId.startsWith('nest-')) {
+      // Drop onto a project = nest under it
+      const targetProjectId = overId.replace('nest-', '');
+      if (targetProjectId !== draggedId) {
+        moveProject(draggedId, targetProjectId);
+        // Auto-expand parent so user sees the result
+        setCollapsed(prev => ({ ...prev, [targetProjectId]: false }));
+      }
+    }
+  };
+
+  const draggedProject = dragActiveId ? projects.find(p => p.id === dragActiveId) : null;
   const displayProjects = topLevelProjects || projects.filter(p => !p.parentProjectId).sort((a, b) => a.order - b.order);
 
   return (
@@ -210,7 +315,6 @@ export default function Sidebar({
               placeholder="Project name..."
               className="w-full bg-gray-700 text-white text-sm px-3 py-1.5 rounded border border-gray-600 focus:border-blue-500 focus:outline-none mb-2"
             />
-            {/* Parent project selector */}
             <select
               value={newParentId || ''}
               onChange={e => setNewParentId(e.target.value || null)}
@@ -259,21 +363,45 @@ export default function Sidebar({
           </div>
         )}
 
-        {/* Nested Project Tree */}
-        {displayProjects.map(project => (
-          <ProjectItem
-            key={project.id}
-            project={project}
-            depth={0}
-            activeProject={activeProject}
-            specialView={specialView}
-            onProjectClick={handleProjectClick}
-            onContextMenu={handleContextMenu}
-            getChildProjects={getChildProjects}
-            collapsed={collapsed}
-            toggleCollapse={toggleCollapse}
-          />
-        ))}
+        {/* Draggable Nested Project Tree */}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          {/* Top-level drop zone (shown when dragging) */}
+          {dragActiveId && (
+            <div ref={setTopLevelRef}>
+              <TopLevelDropZone isOver={isOverTopLevel} />
+            </div>
+          )}
+
+          {displayProjects.map(project => (
+            <DraggableProjectItem
+              key={project.id}
+              project={project}
+              depth={0}
+              activeProject={activeProject}
+              specialView={specialView}
+              onProjectClick={handleProjectClick}
+              onContextMenu={handleContextMenu}
+              getChildProjects={getChildProjects}
+              collapsed={collapsed}
+              toggleCollapse={toggleCollapse}
+              dragActiveId={dragActiveId}
+            />
+          ))}
+
+          <DragOverlay>
+            {draggedProject ? (
+              <div className="flex items-center gap-2 px-3 py-2 bg-gray-700 rounded-lg text-sm text-white shadow-xl border border-gray-600 opacity-90">
+                <span className="text-base">{draggedProject.icon}</span>
+                <span>{draggedProject.name}</span>
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       </div>
 
       {/* Context Menu */}
@@ -284,7 +412,6 @@ export default function Sidebar({
             className="fixed z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[180px]"
             style={{ left: contextMenu.x, top: contextMenu.y }}
           >
-            {/* Add sub-project */}
             <button
               onClick={() => {
                 setNewParentId(contextMenu.id);
@@ -295,8 +422,6 @@ export default function Sidebar({
             >
               + Add sub-project
             </button>
-
-            {/* Move to parent */}
             <div className="border-t border-gray-700 my-1" />
             <p className="px-3 py-1 text-[10px] uppercase text-gray-500">Move under...</p>
             <button
@@ -314,8 +439,6 @@ export default function Sidebar({
                 {p.icon} {p.name}
               </button>
             ))}
-
-            {/* Delete */}
             <div className="border-t border-gray-700 my-1" />
             <button
               onClick={() => { deleteProject(contextMenu.id); setContextMenu(null); }}
