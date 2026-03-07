@@ -23,14 +23,37 @@ const VIEW_MODES = [
 const PROJECT_COLORS = ['#EF4444', '#F97316', '#EAB308', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#6B7280'];
 const PROJECT_ICONS = ['📁', '🏰', '🎯', '⛰️', '📱', '💼', '🚀', '⚡', '🔥', '💡', '🎨', '📊'];
 
-// Drop zone between projects for reordering at top level
-function DropGap({ id }) {
-  const { setNodeRef, isOver } = useDroppable({ id });
+// The "Projects" header doubles as a drop target to un-nest projects
+function ProjectsHeader({ onAdd, dragActiveId }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: 'top-level-drop',
+    data: { type: 'top-level' },
+  });
+
   return (
     <div
       ref={setNodeRef}
-      className={`h-0.5 mx-3 rounded transition-all ${isOver ? 'bg-blue-500 h-1' : ''}`}
-    />
+      className={`flex items-center justify-between px-3 mb-1 py-1 rounded transition-all ${
+        dragActiveId
+          ? isOver
+            ? 'bg-blue-900/40 ring-1 ring-blue-500'
+            : 'bg-gray-800/50 ring-1 ring-dashed ring-gray-600'
+          : ''
+      }`}
+    >
+      <p className={`text-[10px] uppercase tracking-wider ${
+        dragActiveId ? (isOver ? 'text-blue-400' : 'text-gray-400') : 'text-gray-600'
+      }`}>
+        {dragActiveId ? (isOver ? 'Drop to make top-level' : 'Drag here for top-level') : 'Projects'}
+      </p>
+      <button
+        onClick={onAdd}
+        className="text-gray-500 hover:text-white text-lg leading-none transition-colors"
+        title="Add project"
+      >
+        +
+      </button>
+    </div>
   );
 }
 
@@ -123,16 +146,6 @@ function DraggableProjectItem({
   );
 }
 
-// Top-level drop zone to un-nest a project
-function TopLevelDropZone({ isOver }) {
-  return (
-    <div className={`mx-3 mb-1 rounded text-center text-[10px] py-1 transition-all ${
-      isOver ? 'bg-blue-900/30 text-blue-400 border border-dashed border-blue-500/50' : 'h-0'
-    }`}>
-      {isOver ? 'Drop here for top level' : ''}
-    </div>
-  );
-}
 
 export default function Sidebar({
   projects, activeProject, setActiveProject,
@@ -199,12 +212,6 @@ export default function Sidebar({
     findDesc(excludeId);
     return projects.filter(p => !descendants.has(p.id) && p.id !== 'inbox');
   };
-
-  // DnD: top-level drop zone
-  const { setNodeRef: setTopLevelRef, isOver: isOverTopLevel } = useDroppable({
-    id: 'top-level-drop',
-    data: { type: 'top-level' },
-  });
 
   const handleDragStart = (event) => {
     setDragActiveId(event.active.id);
@@ -293,17 +300,6 @@ export default function Sidebar({
 
       {/* Projects */}
       <div className="flex-1 overflow-y-auto px-2 pt-3">
-        <div className="flex items-center justify-between px-3 mb-1">
-          <p className="text-[10px] uppercase tracking-wider text-gray-600">Projects</p>
-          <button
-            onClick={() => { setNewParentId(null); setShowNewProject(!showNewProject); }}
-            className="text-gray-500 hover:text-white text-lg leading-none transition-colors"
-            title="Add project"
-          >
-            +
-          </button>
-        </div>
-
         {/* New Project Form */}
         {showNewProject && (
           <div className="mx-2 mb-2 p-3 bg-gray-800 rounded-lg">
@@ -370,12 +366,11 @@ export default function Sidebar({
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          {/* Top-level drop zone (shown when dragging) */}
-          {dragActiveId && (
-            <div ref={setTopLevelRef}>
-              <TopLevelDropZone isOver={isOverTopLevel} />
-            </div>
-          )}
+          {/* Projects header = drop target to un-nest */}
+          <ProjectsHeader
+            onAdd={() => { setNewParentId(null); setShowNewProject(!showNewProject); }}
+            dragActiveId={dragActiveId}
+          />
 
           {displayProjects.map(project => (
             <DraggableProjectItem
