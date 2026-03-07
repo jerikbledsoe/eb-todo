@@ -83,6 +83,7 @@ function mapFromDb(row) {
   return {
     id: row.id,
     ...(row.project_id !== undefined && { projectId: row.project_id }),
+    ...(row.parent_project_id !== undefined && { parentProjectId: row.parent_project_id }),
     ...(row.parent_section_id !== undefined && { parentSectionId: row.parent_section_id }),
     ...(row.section_id !== undefined && { sectionId: row.section_id }),
     ...(row.due_date !== undefined && { dueDate: row.due_date }),
@@ -102,6 +103,7 @@ function mapFromDb(row) {
 function mapToDb(item, userId) {
   const row = { id: item.id, user_id: userId };
   if (item.projectId !== undefined) row.project_id = item.projectId;
+  if (item.parentProjectId !== undefined) row.parent_project_id = item.parentProjectId;
   if (item.parentSectionId !== undefined) row.parent_section_id = item.parentSectionId;
   if (item.sectionId !== undefined) row.section_id = item.sectionId;
   if (item.dueDate !== undefined) row.due_date = item.dueDate;
@@ -130,11 +132,11 @@ async function seedData(userId, defaults) {
 function getDefaultData() {
   return {
     projects: [
-      { id: 'inbox', name: 'Inbox', color: '#6B7280', icon: '📥', order: 0 },
-      { id: 'proj-1', name: 'Rock Castle AI', color: '#3B82F6', icon: '🏰', order: 1 },
-      { id: 'proj-2', name: 'Erik Bledsoe Brand', color: '#F97316', icon: '🎯', order: 2 },
-      { id: 'proj-3', name: 'Take the Hill', color: '#10B981', icon: '⛰️', order: 3 },
-      { id: 'proj-4', name: 'Bledsoe Media', color: '#8B5CF6', icon: '📱', order: 4 },
+      { id: 'inbox', name: 'Inbox', color: '#6B7280', icon: '📥', parentProjectId: null, order: 0 },
+      { id: 'proj-1', name: 'Rock Castle AI', color: '#3B82F6', icon: '🏰', parentProjectId: null, order: 1 },
+      { id: 'proj-2', name: 'Erik Bledsoe Brand', color: '#F97316', icon: '🎯', parentProjectId: null, order: 2 },
+      { id: 'proj-3', name: 'Take the Hill', color: '#10B981', icon: '⛰️', parentProjectId: null, order: 3 },
+      { id: 'proj-4', name: 'Bledsoe Media', color: '#8B5CF6', icon: '📱', parentProjectId: null, order: 4 },
     ],
     sections: [
       { id: 'sec-todo', projectId: 'inbox', parentSectionId: null, name: 'To Do', color: '#6B7280', icon: '', order: 0 },

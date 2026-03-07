@@ -14,10 +14,66 @@ const VIEW_MODES = [
 const PROJECT_COLORS = ['#EF4444', '#F97316', '#EAB308', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#6B7280'];
 const PROJECT_ICONS = ['📁', '🏰', '🎯', '⛰️', '📱', '💼', '🚀', '⚡', '🔥', '💡', '🎨', '📊'];
 
+function ProjectItem({
+  project, depth, activeProject, specialView,
+  onProjectClick, onContextMenu, getChildProjects, collapsed, toggleCollapse,
+}) {
+  const children = getChildProjects(project.id);
+  const hasChildren = children.length > 0;
+  const isCollapsed = collapsed[project.id];
+
+  return (
+    <>
+      <button
+        onClick={() => onProjectClick(project.id)}
+        onContextMenu={(e) => onContextMenu(e, project)}
+        className={`w-full flex items-center gap-2 py-2 rounded-lg text-sm transition-colors ${
+          activeProject === project.id && !specialView
+            ? 'bg-gray-700 text-white'
+            : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+        }`}
+        style={{ paddingLeft: `${12 + depth * 16}px`, paddingRight: '12px' }}
+      >
+        {hasChildren ? (
+          <span
+            onClick={(e) => { e.stopPropagation(); toggleCollapse(project.id); }}
+            className="text-[10px] text-gray-500 hover:text-gray-300 w-3 flex-shrink-0 cursor-pointer select-none"
+          >
+            {isCollapsed ? '▶' : '▼'}
+          </span>
+        ) : (
+          <span className="w-3 flex-shrink-0" />
+        )}
+        <span className="text-base flex-shrink-0">{project.icon}</span>
+        <span className="flex-1 text-left truncate">{project.name}</span>
+        <span
+          className="w-2 h-2 rounded-full flex-shrink-0"
+          style={{ backgroundColor: project.color }}
+        />
+      </button>
+      {hasChildren && !isCollapsed && children.map(child => (
+        <ProjectItem
+          key={child.id}
+          project={child}
+          depth={depth + 1}
+          activeProject={activeProject}
+          specialView={specialView}
+          onProjectClick={onProjectClick}
+          onContextMenu={onContextMenu}
+          getChildProjects={getChildProjects}
+          collapsed={collapsed}
+          toggleCollapse={toggleCollapse}
+        />
+      ))}
+    </>
+  );
+}
+
 export default function Sidebar({
   projects, activeProject, setActiveProject,
   activeView, setActiveView,
-  addProject, deleteProject,
+  addProject, deleteProject, moveProject,
+  getChildProjects, topLevelProjects,
   todayCount, upcomingCount,
   signOut, user,
 }) {
@@ -25,16 +81,22 @@ export default function Sidebar({
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState('#3B82F6');
   const [newIcon, setNewIcon] = useState('📁');
-  const [specialView, setSpecialView] = useState(null); // 'today' | 'upcoming' | null
-  const [editingProject, setEditingProject] = useState(null);
+  const [newParentId, setNewParentId] = useState(null);
+  const [specialView, setSpecialView] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
+  const [collapsed, setCollapsed] = useState({});
+
+  const toggleCollapse = (projectId) => {
+    setCollapsed(prev => ({ ...prev, [projectId]: !prev[projectId] }));
+  };
 
   const handleAddProject = () => {
     if (!newName.trim()) return;
-    addProject(newName.trim(), newColor, newIcon);
+    addProject(newName.trim(), newColor, newIcon, newParentId);
     setNewName('');
     setNewColor('#3B82F6');
     setNewIcon('📁');
+    setNewParentId(null);
     setShowNewProject(false);
   };
 
@@ -50,6 +112,26 @@ export default function Sidebar({
       setActiveView('list');
     }
   };
+
+  const handleContextMenu = (e, project) => {
+    e.preventDefault();
+    if (project.id !== 'inbox') {
+      setContextMenu({ id: project.id, name: project.name, x: e.clientX, y: e.clientY });
+    }
+  };
+
+  // Get all possible parent projects (exclude the project itself and its descendants)
+  const getValidParents = (excludeId) => {
+    const descendants = new Set();
+    const findDesc = (parentId) => {
+      descendants.add(parentId);
+      projects.filter(p => p.parentProjectId === parentId).forEach(c => findDesc(c.id));
+    };
+    findDesc(excludeId);
+    return projects.filter(p => !descendants.has(p.id) && p.id !== 'inbox');
+  };
+
+  const displayProjects = topLevelProjects || projects.filter(p => !p.parentProjectId).sort((a, b) => a.order - b.order);
 
   return (
     <div className="w-64 bg-gray-900 h-screen flex flex-col border-r border-gray-800 select-none">
@@ -109,7 +191,7 @@ export default function Sidebar({
         <div className="flex items-center justify-between px-3 mb-1">
           <p className="text-[10px] uppercase tracking-wider text-gray-600">Projects</p>
           <button
-            onClick={() => setShowNewProject(!showNewProject)}
+            onClick={() => { setNewParentId(null); setShowNewProject(!showNewProject); }}
             className="text-gray-500 hover:text-white text-lg leading-none transition-colors"
             title="Add project"
           >
@@ -128,6 +210,17 @@ export default function Sidebar({
               placeholder="Project name..."
               className="w-full bg-gray-700 text-white text-sm px-3 py-1.5 rounded border border-gray-600 focus:border-blue-500 focus:outline-none mb-2"
             />
+            {/* Parent project selector */}
+            <select
+              value={newParentId || ''}
+              onChange={e => setNewParentId(e.target.value || null)}
+              className="w-full bg-gray-700 text-white text-sm px-3 py-1.5 rounded border border-gray-600 focus:border-blue-500 focus:outline-none mb-2"
+            >
+              <option value="">Top level (no parent)</option>
+              {projects.filter(p => p.id !== 'inbox').map(p => (
+                <option key={p.id} value={p.id}>{p.icon} {p.name}</option>
+              ))}
+            </select>
             <div className="flex gap-1 mb-2 flex-wrap">
               {PROJECT_COLORS.map(c => (
                 <button
@@ -166,30 +259,20 @@ export default function Sidebar({
           </div>
         )}
 
-        {/* Project List */}
-        {projects.sort((a, b) => a.order - b.order).map(project => (
-          <button
+        {/* Nested Project Tree */}
+        {displayProjects.map(project => (
+          <ProjectItem
             key={project.id}
-            onClick={() => handleProjectClick(project.id)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              if (project.id !== 'inbox') {
-                setContextMenu({ id: project.id, x: e.clientX, y: e.clientY });
-              }
-            }}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-              activeProject === project.id && !specialView
-                ? 'bg-gray-700 text-white'
-                : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-            }`}
-          >
-            <span className="text-base">{project.icon}</span>
-            <span className="flex-1 text-left truncate">{project.name}</span>
-            <span
-              className="w-2 h-2 rounded-full flex-shrink-0"
-              style={{ backgroundColor: project.color }}
-            />
-          </button>
+            project={project}
+            depth={0}
+            activeProject={activeProject}
+            specialView={specialView}
+            onProjectClick={handleProjectClick}
+            onContextMenu={handleContextMenu}
+            getChildProjects={getChildProjects}
+            collapsed={collapsed}
+            toggleCollapse={toggleCollapse}
+          />
         ))}
       </div>
 
@@ -198,9 +281,42 @@ export default function Sidebar({
         <>
           <div className="fixed inset-0 z-40" onClick={() => setContextMenu(null)} />
           <div
-            className="fixed z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[140px]"
+            className="fixed z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[180px]"
             style={{ left: contextMenu.x, top: contextMenu.y }}
           >
+            {/* Add sub-project */}
+            <button
+              onClick={() => {
+                setNewParentId(contextMenu.id);
+                setShowNewProject(true);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+            >
+              + Add sub-project
+            </button>
+
+            {/* Move to parent */}
+            <div className="border-t border-gray-700 my-1" />
+            <p className="px-3 py-1 text-[10px] uppercase text-gray-500">Move under...</p>
+            <button
+              onClick={() => { moveProject(contextMenu.id, null); setContextMenu(null); }}
+              className="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+            >
+              📂 Top level
+            </button>
+            {getValidParents(contextMenu.id).map(p => (
+              <button
+                key={p.id}
+                onClick={() => { moveProject(contextMenu.id, p.id); setContextMenu(null); }}
+                className="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+              >
+                {p.icon} {p.name}
+              </button>
+            ))}
+
+            {/* Delete */}
+            <div className="border-t border-gray-700 my-1" />
             <button
               onClick={() => { deleteProject(contextMenu.id); setContextMenu(null); }}
               className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-gray-700 transition-colors"

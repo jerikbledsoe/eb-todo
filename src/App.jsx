@@ -27,7 +27,7 @@ function App() {
     tasks, projectTasks, allTasks,
     selectedTask, selectedTaskId, setSelectedTaskId,
     activeView, setActiveView,
-    addProject, deleteProject,
+    addProject, deleteProject, moveProject, getChildProjects, topLevelProjects,
     addSection, updateSection, deleteSection,
     addTask, updateTask, deleteTask, toggleTask, moveTask,
   } = store;
@@ -184,6 +184,9 @@ function App() {
         setActiveView={setActiveView}
         addProject={addProject}
         deleteProject={deleteProject}
+        moveProject={moveProject}
+        getChildProjects={getChildProjects}
+        topLevelProjects={topLevelProjects}
         todayCount={todayCount}
         signOut={signOut}
         user={user}

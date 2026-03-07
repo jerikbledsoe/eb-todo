@@ -53,19 +53,22 @@ export default function useStore() {
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [data, user, loading]);
 
-  // --- PROJECTS ---
-  const addProject = useCallback((name, color = '#6B7280', icon = '📁') => {
+  // --- PROJECTS (support nesting via parentProjectId) ---
+  const addProject = useCallback((name, color = '#6B7280', icon = '📁', parentProjectId = null) => {
     const id = generateId();
-    setData(prev => ({
-      ...prev,
-      projects: [...prev.projects, { id, name, color, icon, order: prev.projects.length }],
-      sections: [
-        ...prev.sections,
-        { id: generateId(), projectId: id, parentSectionId: null, name: 'To Do', color: '#6B7280', icon: '', order: 0 },
-        { id: generateId(), projectId: id, parentSectionId: null, name: 'In Progress', color: '#F97316', icon: '', order: 1 },
-        { id: generateId(), projectId: id, parentSectionId: null, name: 'Done', color: '#10B981', icon: '', order: 2 },
-      ],
-    }));
+    setData(prev => {
+      const siblings = prev.projects.filter(p => p.parentProjectId === parentProjectId);
+      return {
+        ...prev,
+        projects: [...prev.projects, { id, name, color, icon, parentProjectId, order: siblings.length }],
+        sections: [
+          ...prev.sections,
+          { id: generateId(), projectId: id, parentSectionId: null, name: 'To Do', color: '#6B7280', icon: '', order: 0 },
+          { id: generateId(), projectId: id, parentSectionId: null, name: 'In Progress', color: '#F97316', icon: '', order: 1 },
+          { id: generateId(), projectId: id, parentSectionId: null, name: 'Done', color: '#10B981', icon: '', order: 2 },
+        ],
+      };
+    });
     return id;
   }, []);
 
@@ -78,15 +81,66 @@ export default function useStore() {
 
   const deleteProject = useCallback((id) => {
     if (id === 'inbox') return;
-    setData(prev => ({
-      ...prev,
-      projects: prev.projects.filter(p => p.id !== id),
-      sections: prev.sections.filter(s => s.projectId !== id),
-      tasks: prev.tasks.filter(t => t.projectId !== id),
-    }));
-    if (user) deleteProjectFromDb(user.id, id);
+    setData(prev => {
+      // Find all descendant projects recursively
+      const toDelete = new Set();
+      const findChildren = (parentId) => {
+        toDelete.add(parentId);
+        prev.projects.filter(p => p.parentProjectId === parentId).forEach(child => {
+          findChildren(child.id);
+        });
+      };
+      findChildren(id);
+
+      // Delete from Supabase for each project
+      if (user) {
+        toDelete.forEach(pid => deleteProjectFromDb(user.id, pid));
+      }
+
+      return {
+        ...prev,
+        projects: prev.projects.filter(p => !toDelete.has(p.id)),
+        sections: prev.sections.filter(s => !toDelete.has(s.projectId)),
+        tasks: prev.tasks.filter(t => !toDelete.has(t.projectId)),
+      };
+    });
     if (activeProject === id) setActiveProject('inbox');
   }, [activeProject, user]);
+
+  const moveProject = useCallback((projectId, newParentProjectId) => {
+    if (projectId === 'inbox' || projectId === newParentProjectId) return;
+    // Prevent moving a parent into its own child
+    setData(prev => {
+      const isDescendant = (parentId, checkId) => {
+        if (parentId === checkId) return true;
+        return prev.projects
+          .filter(p => p.parentProjectId === parentId)
+          .some(child => isDescendant(child.id, checkId));
+      };
+      if (newParentProjectId && isDescendant(projectId, newParentProjectId)) return prev;
+
+      const siblings = prev.projects.filter(p => p.parentProjectId === newParentProjectId && p.id !== projectId);
+      return {
+        ...prev,
+        projects: prev.projects.map(p =>
+          p.id === projectId
+            ? { ...p, parentProjectId: newParentProjectId, order: siblings.length }
+            : p
+        ),
+      };
+    });
+  }, []);
+
+  const getChildProjects = useCallback((parentProjectId) => {
+    return data.projects
+      .filter(p => p.parentProjectId === parentProjectId)
+      .sort((a, b) => a.order - b.order);
+  }, [data.projects]);
+
+  // Top-level projects (no parent)
+  const topLevelProjects = data.projects
+    .filter(p => !p.parentProjectId)
+    .sort((a, b) => a.order - b.order);
 
   // --- SECTIONS ---
   const addSection = useCallback((projectId, name, parentSectionId = null, color = '#6B7280', icon = '') => {
@@ -242,6 +296,9 @@ export default function useStore() {
     addProject,
     updateProject,
     deleteProject,
+    moveProject,
+    getChildProjects,
+    topLevelProjects,
     sections: data.sections,
     projectSections,
     allProjectSections,
